@@ -72,7 +72,9 @@ void diagnosticReceiverInit() {
     Serial.println("╔════════════════════════════════════════════════════════╗");
     Serial.println("║         ESP-NOW DIAGNOSTIC RECEIVER                    ║");
     Serial.println("╠════════════════════════════════════════════════════════╣");
-    Serial.println("║  Logs: Signal loss (3s timeout) and 60s heartbeat      ║");
+    Serial.println("║  Expected: 10 pings/sec (100ms interval)               ║");
+    Serial.println("║  Timeout:  3 seconds (signal loss detection)           ║");
+    Serial.println("║  Heartbeat: 60 seconds                                 ║");
     Serial.println("║  Commands: S=stats, R=reset, H=help                    ║");
     Serial.println("╠════════════════════════════════════════════════════════╣");
     Serial.println("║  TIP: Capture serial output to file for logging        ║");
