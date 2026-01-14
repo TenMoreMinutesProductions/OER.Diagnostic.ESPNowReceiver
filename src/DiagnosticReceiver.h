@@ -44,6 +44,8 @@ struct PingMessage {
 
 #define SIGNAL_TIMEOUT_MS     3000   // Signal loss after 3 seconds
 #define HEARTBEAT_INTERVAL_MS 60000  // Status heartbeat every 60 seconds
+#define TEST_PACKET_COUNT     10000  // Expected packets from transmitter
+#define TEST_END_TIMEOUT_MS   10000  // End test after 10s of no packets
 
 // ============================================================
 //                    FUNCTIONS

@@ -16,9 +16,12 @@ static uint32_t _signalLossEvents = 0;
 static uint32_t _lastSequenceNumber = 0;
 static unsigned long _lastPingTime = 0;
 static unsigned long _lastHeartbeatTime = 0;
+static unsigned long _testStartTime = 0;
 
 static bool _signalLost = false;
 static bool _firstPingReceived = false;
+static bool _testComplete = false;
+static bool _summaryPrinted = false;
 
 // Store transmitter MAC for display
 static uint8_t _transmitterMac[6] = {0};
@@ -53,6 +56,37 @@ static void printHelp() {
     Serial.println();
 }
 
+static void printFinalSummary() {
+    unsigned long duration = millis() - _testStartTime;
+    char durationStr[16];
+    formatUptime(duration, durationStr, sizeof(durationStr));
+
+    float successRate = 0;
+    uint32_t total = _totalReceived + _totalMissed;
+    if (total > 0) {
+        successRate = (_totalReceived * 100.0f) / total;
+    }
+
+    char macStr[18];
+    formatMac(_transmitterMac, macStr, sizeof(macStr));
+
+    Serial.println();
+    Serial.println("╔════════════════════════════════════════════════════════╗");
+    Serial.println("║            RECEIVER TEST COMPLETE                      ║");
+    Serial.println("╠════════════════════════════════════════════════════════╣");
+    Serial.printf("║  Test duration:      %s                         ║\n", durationStr);
+    Serial.printf("║  Packets received:   %-10lu                       ║\n", _totalReceived);
+    Serial.printf("║  Packets missed:     %-10lu                       ║\n", _totalMissed);
+    Serial.printf("║  Signal loss events: %-10lu                       ║\n", _signalLossEvents);
+    Serial.printf("║  Success rate:       %6.2f%%                          ║\n", successRate);
+    Serial.println("╠════════════════════════════════════════════════════════╣");
+    Serial.printf("║  Transmitter MAC:    %s                 ║\n", macStr);
+    Serial.printf("║  Last sequence:      %-10lu                       ║\n", _lastSequenceNumber);
+    Serial.println("╚════════════════════════════════════════════════════════╝");
+    Serial.println();
+    Serial.println("Test finished. Reset device to run again.");
+}
+
 // ============================================================
 //                    PUBLIC FUNCTIONS
 // ============================================================
@@ -64,17 +98,19 @@ void diagnosticReceiverInit() {
     _lastSequenceNumber = 0;
     _lastPingTime = 0;
     _lastHeartbeatTime = millis();
+    _testStartTime = 0;
     _signalLost = false;
     _firstPingReceived = false;
+    _testComplete = false;
+    _summaryPrinted = false;
     _transmitterKnown = false;
 
     Serial.println();
     Serial.println("╔════════════════════════════════════════════════════════╗");
     Serial.println("║         ESP-NOW DIAGNOSTIC RECEIVER                    ║");
     Serial.println("╠════════════════════════════════════════════════════════╣");
-    Serial.println("║  Expected: 10 pings/sec (100ms interval)               ║");
-    Serial.println("║  Timeout:  3 seconds (signal loss detection)           ║");
-    Serial.println("║  Heartbeat: 60 seconds                                 ║");
+    Serial.printf("║  Expecting: %d packets from transmitter            ║\n", TEST_PACKET_COUNT);
+    Serial.println("║  Test ends: On packet #10000 or 10s timeout            ║");
     Serial.println("║  Commands: S=stats, R=reset, H=help                    ║");
     Serial.println("╠════════════════════════════════════════════════════════╣");
     Serial.println("║  TIP: Capture serial output to file for logging        ║");
@@ -86,16 +122,31 @@ void diagnosticReceiverInit() {
 }
 
 void diagnosticReceiverLoop() {
+    // If test complete, just print summary once
+    if (_testComplete) {
+        if (!_summaryPrinted) {
+            printFinalSummary();
+            _summaryPrinted = true;
+        }
+        return;
+    }
+
     unsigned long now = millis();
     char uptimeStr[16];
-    formatUptime(now, uptimeStr, sizeof(uptimeStr));
 
-    // Check for signal timeout (only after first ping received)
+    // Check for test completion via timeout (10s after last packet)
+    if (_firstPingReceived && (now - _lastPingTime >= TEST_END_TIMEOUT_MS)) {
+        _testComplete = true;
+        return;
+    }
+
+    // Check for signal loss (3s timeout) - only if test still running
     if (_firstPingReceived && !_signalLost) {
         if (now - _lastPingTime >= SIGNAL_TIMEOUT_MS) {
             _signalLost = true;
             _signalLossEvents++;
 
+            formatUptime(now - _testStartTime, uptimeStr, sizeof(uptimeStr));
             unsigned long silenceMs = now - _lastPingTime;
             Serial.printf("[%s] *** SIGNAL LOST *** No ping for %lu ms (last seq=%lu)\n",
                           uptimeStr, silenceMs, _lastSequenceNumber);
@@ -103,32 +154,22 @@ void diagnosticReceiverLoop() {
     }
 
     // 60-second heartbeat status
-    if (now - _lastHeartbeatTime >= HEARTBEAT_INTERVAL_MS) {
+    if (_firstPingReceived && (now - _lastHeartbeatTime >= HEARTBEAT_INTERVAL_MS)) {
         _lastHeartbeatTime = now;
 
-        Serial.println();
-        Serial.printf("[%s] === HEARTBEAT === Receiver online\n", uptimeStr);
+        formatUptime(now - _testStartTime, uptimeStr, sizeof(uptimeStr));
 
-        if (_firstPingReceived) {
-            float successRate = 0;
-            uint32_t total = _totalReceived + _totalMissed;
-            if (total > 0) {
-                successRate = (_totalReceived * 100.0f) / total;
-            }
-
-            Serial.printf("             Received: %lu | Missed: %lu | Loss events: %lu | Success: %.1f%%\n",
-                          _totalReceived, _totalMissed, _signalLossEvents, successRate);
-
-            if (_transmitterKnown) {
-                char macStr[18];
-                formatMac(_transmitterMac, macStr, sizeof(macStr));
-                Serial.printf("             Transmitter: %s | Last seq: %lu\n",
-                              macStr, _lastSequenceNumber);
-            }
-        } else {
-            Serial.println("             Waiting for first ping from transmitter...");
+        float progress = (_lastSequenceNumber * 100.0f) / TEST_PACKET_COUNT;
+        float successRate = 0;
+        uint32_t total = _totalReceived + _totalMissed;
+        if (total > 0) {
+            successRate = (_totalReceived * 100.0f) / total;
         }
 
+        Serial.println();
+        Serial.printf("[%s] Progress: %lu/%d (%.1f%%) | Received: %lu | Missed: %lu | Success: %.1f%%\n",
+                      uptimeStr, _lastSequenceNumber, TEST_PACKET_COUNT, progress,
+                      _totalReceived, _totalMissed, successRate);
         Serial.println();
     }
 
@@ -143,6 +184,7 @@ void diagnosticReceiverLoop() {
             case 'r':
             case 'R':
                 diagnosticReceiverReset();
+                formatUptime(now, uptimeStr, sizeof(uptimeStr));
                 Serial.printf("[%s] Counters reset\n", uptimeStr);
                 break;
             case 'h':
@@ -155,23 +197,21 @@ void diagnosticReceiverLoop() {
 }
 
 void diagnosticReceiverOnPing(const uint8_t* mac, const uint8_t* data, int len) {
+    // Ignore packets if test is complete
+    if (_testComplete) return;
+
     unsigned long now = millis();
     char uptimeStr[16];
-    formatUptime(now, uptimeStr, sizeof(uptimeStr));
 
     // Validate message
     if (len != sizeof(PingMessage)) {
-        Serial.printf("[%s] WARN: Invalid message size (%d bytes, expected %d)\n",
-                      uptimeStr, len, sizeof(PingMessage));
-        return;
+        return;  // Silently ignore invalid packets
     }
 
     const PingMessage* ping = (const PingMessage*)data;
 
     if (ping->magic != PING_MAGIC) {
-        Serial.printf("[%s] WARN: Invalid magic byte (0x%02X, expected 0x%02X)\n",
-                      uptimeStr, ping->magic, PING_MAGIC);
-        return;
+        return;  // Silently ignore non-ping packets
     }
 
     // Store transmitter MAC on first ping
@@ -182,6 +222,7 @@ void diagnosticReceiverOnPing(const uint8_t* mac, const uint8_t* data, int len) 
 
     // Handle signal restoration
     if (_signalLost) {
+        formatUptime(now - _testStartTime, uptimeStr, sizeof(uptimeStr));
         unsigned long silenceMs = now - _lastPingTime;
         uint32_t expectedSeq = _lastSequenceNumber + 1;
         uint32_t actualMissed = (ping->sequenceNumber > expectedSeq) ?
@@ -197,12 +238,10 @@ void diagnosticReceiverOnPing(const uint8_t* mac, const uint8_t* data, int len) 
         _signalLost = false;
     }
 
-    // Check for missed packets (sequence gaps)
+    // Check for missed packets (sequence gaps) - count but don't log individually
     if (_firstPingReceived && ping->sequenceNumber > _lastSequenceNumber + 1) {
         uint32_t missed = ping->sequenceNumber - _lastSequenceNumber - 1;
         _totalMissed += missed;
-        Serial.printf("[%s] MISSED %lu packet(s) (seq %lu -> %lu)\n",
-                      uptimeStr, missed, _lastSequenceNumber, ping->sequenceNumber);
     }
 
     // Record this ping
@@ -212,17 +251,23 @@ void diagnosticReceiverOnPing(const uint8_t* mac, const uint8_t* data, int len) 
 
     if (!_firstPingReceived) {
         _firstPingReceived = true;
+        _testStartTime = now;
+        _lastHeartbeatTime = now;
         char macStr[18];
         formatMac(mac, macStr, sizeof(macStr));
-        Serial.printf("[%s] First ping received from %s\n", uptimeStr, macStr);
+        Serial.printf("[00:00:00] First ping received from %s (seq=%lu)\n",
+                      macStr, ping->sequenceNumber);
     }
 
-    // Silent operation - only log on signal loss/restore events and heartbeat
+    // Check if we've received the final packet
+    if (ping->sequenceNumber >= TEST_PACKET_COUNT) {
+        _testComplete = true;
+    }
 }
 
 void diagnosticReceiverPrintStats() {
     char uptimeStr[16];
-    formatUptime(millis(), uptimeStr, sizeof(uptimeStr));
+    formatUptime(millis() - _testStartTime, uptimeStr, sizeof(uptimeStr));
 
     float successRate = 0;
     uint32_t total = _totalReceived + _totalMissed;
@@ -234,7 +279,7 @@ void diagnosticReceiverPrintStats() {
     Serial.println("╔════════════════════════════════════════════════════════╗");
     Serial.println("║              DIAGNOSTIC STATISTICS                     ║");
     Serial.println("╠════════════════════════════════════════════════════════╣");
-    Serial.printf("║  Receiver uptime:    %s                         ║\n", uptimeStr);
+    Serial.printf("║  Test duration:      %s                         ║\n", uptimeStr);
     Serial.printf("║  Pings received:     %-10lu                       ║\n", _totalReceived);
     Serial.printf("║  Pings missed:       %-10lu                       ║\n", _totalMissed);
     Serial.printf("║  Signal loss events: %-10lu                       ║\n", _signalLossEvents);
@@ -261,8 +306,6 @@ void diagnosticReceiverReset() {
     _totalReceived = 0;
     _totalMissed = 0;
     _signalLossEvents = 0;
-    // Keep lastSequenceNumber to continue gap detection
-    // Keep transmitter info
 }
 
 uint32_t diagnosticReceiverGetReceived() {
