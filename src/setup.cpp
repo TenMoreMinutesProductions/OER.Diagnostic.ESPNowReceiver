@@ -1,6 +1,7 @@
 #include "setup.h"
 #include "config.h"
 #include "esp_task_wdt.h"
+#include "DiagnosticReceiver.h"
 
 // Module includes
 #if USE_WIFI
@@ -313,6 +314,9 @@ void setupInit() {
 
   // Print network status after all modules initialized
   printNetworkInfo();
+
+  // Initialize diagnostic receiver system
+  diagnosticReceiverInit();
 
   // Set heartbeat to normal operation
   #if USE_HEARTBEAT

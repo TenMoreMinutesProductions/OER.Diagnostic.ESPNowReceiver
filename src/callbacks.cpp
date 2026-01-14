@@ -1,6 +1,7 @@
 #include "callbacks.h"
 #include "config.h"
 #include "setup.h"
+#include "DiagnosticReceiver.h"
 
 // ============================================================
 //                   CALLBACK FUNCTIONS
@@ -30,16 +31,8 @@ void onMqttMessage(String topic, String payload) {
 #if USE_ESPNOW
 // Called when ESP-NOW message is received
 void onEspNowReceive(const uint8_t* mac, const uint8_t* data, int len) {
-  Serial.print("[ESP-NOW] Received ");
-  Serial.print(len);
-  Serial.print(" bytes from ");
-  for (int i = 0; i < 6; i++) {
-    Serial.printf("%02X", mac[i]);
-    if (i < 5) Serial.print(":");
-  }
-  Serial.println();
-
-  // Add your puzzle-specific ESP-NOW handling here
+  // Forward to diagnostic receiver for processing
+  diagnosticReceiverOnPing(mac, data, len);
 }
 
 // Called when ESP-NOW send completes
