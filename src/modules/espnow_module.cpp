@@ -1,5 +1,6 @@
 #include "espnow_module.h"
 #include <esp_now.h>
+#include <esp_wifi.h>
 #include <WiFi.h>
 
 static bool _initialized = false;
@@ -51,6 +52,17 @@ bool espnowInit(bool isHost, const uint8_t* hostMac) {
     if (WiFi.getMode() == WIFI_OFF) {
         WiFi.mode(WIFI_STA);
     }
+
+    // Enable Long Range mode for extended distance
+    // Both transmitter and receiver MUST use this for LR to work
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+    Serial.println("[ESP-NOW] Long Range mode enabled");
+
+    // Set maximum TX power (84 = 21dBm)
+    esp_wifi_set_max_tx_power(84);
+    int8_t txPower;
+    esp_wifi_get_max_tx_power(&txPower);
+    Serial.printf("[ESP-NOW] TX power set to %.2f dBm\n", txPower * 0.25f);
 
     // Initialize ESP-NOW
     if (esp_now_init() != ESP_OK) {
