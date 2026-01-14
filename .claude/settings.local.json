@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\Users\\Admin\\OneDrive\\ER\\Arduino\\Templates\\Escape-Room\\Templates\\ESP32\\lib\")",
+      "Bash(dir:*)",
+      "Bash(pio run:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
