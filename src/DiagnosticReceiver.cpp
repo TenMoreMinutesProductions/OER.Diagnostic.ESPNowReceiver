@@ -72,8 +72,7 @@ void diagnosticReceiverInit() {
     Serial.println("╔════════════════════════════════════════════════════════╗");
     Serial.println("║         ESP-NOW DIAGNOSTIC RECEIVER                    ║");
     Serial.println("╠════════════════════════════════════════════════════════╣");
-    Serial.println("║  Signal timeout:  3 seconds                            ║");
-    Serial.println("║  Status interval: 60 seconds                           ║");
+    Serial.println("║  Logs: Signal loss (3s timeout) and 60s heartbeat      ║");
     Serial.println("║  Commands: S=stats, R=reset, H=help                    ║");
     Serial.println("╠════════════════════════════════════════════════════════╣");
     Serial.println("║  TIP: Capture serial output to file for logging        ║");
@@ -216,13 +215,7 @@ void diagnosticReceiverOnPing(const uint8_t* mac, const uint8_t* data, int len) 
         Serial.printf("[%s] First ping received from %s\n", uptimeStr, macStr);
     }
 
-    // Format transmitter uptime
-    char txUptimeStr[16];
-    formatUptime(ping->uptimeMs, txUptimeStr, sizeof(txUptimeStr));
-
-    // Log the received ping
-    Serial.printf("[%s] PING #%lu (tx uptime: %s)\n",
-                  uptimeStr, ping->sequenceNumber, txUptimeStr);
+    // Silent operation - only log on signal loss/restore events and heartbeat
 }
 
 void diagnosticReceiverPrintStats() {
